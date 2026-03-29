@@ -27,7 +27,7 @@ def _resolve_result_for_record(
     record: dict[str, Any],
     index: dict[str, DownloadPipelineResult],
 ) -> DownloadPipelineResult | None:
-    
+   
     candidates: list[str] = []
 
     paper_id = record.get("paperId")
@@ -62,7 +62,7 @@ def _enrich_record(
     record: dict[str, Any],
     result: DownloadPipelineResult | None,
 ) -> dict[str, Any]:
-   
+    
     enriched = dict(record)
     if result is None:
         enriched["pdf_path"] = None
@@ -75,6 +75,11 @@ def _enrich_record(
     return enriched
 
 
+def _has_metadata_records(records: list[Any]) -> bool:
+    
+    return any(isinstance(r, dict) for r in records)
+
+
 def derive_output_path(input_path: Path) -> Path:
     
     return input_path.parent / f"{input_path.stem}_enriched{input_path.suffix}"
@@ -84,14 +89,9 @@ def enrich_metadata_with_results(
     input_path: str | Path,
     results: list[DownloadPipelineResult],
     output_path: str | Path | None = None,
-) -> Path:
-
+) -> Path | None:
+    
     input_path = Path(input_path)
-
-    if output_path is None:
-        output_path = derive_output_path(input_path)
-    else:
-        output_path = Path(output_path)
 
     raw: Any = json.loads(input_path.read_text(encoding="utf-8"))
 
@@ -106,6 +106,19 @@ def enrich_metadata_with_results(
         records = raw
     else:
         raise ValueError(f"Unsupported JSON structure in input file: {input_path}")
+
+    if not _has_metadata_records(records):
+        logger.info(
+            "Skipping enriched output: input contains only bare identifiers, "
+            "no metadata records to enrich | input=%s",
+            input_path,
+        )
+        return None
+
+    if output_path is None:
+        output_path = derive_output_path(input_path)
+    else:
+        output_path = Path(output_path)
 
     index = _build_result_index(results)
 

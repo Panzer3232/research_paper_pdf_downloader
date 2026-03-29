@@ -54,7 +54,9 @@ def run(
 
     input_as_path = Path(input_path)
     if input_as_path.exists() and input_as_path.suffix.lower() == ".json":
-        enrich_metadata_with_results(input_as_path, results, output_path)
+        enriched = enrich_metadata_with_results(input_as_path, results, output_path)
+        if enriched is not None:
+            logger.info("Enriched metadata written | output=%s", enriched)
     else:
         logger.warning(
             "Skipping enriched output: --input is not a JSON file path | input=%s",

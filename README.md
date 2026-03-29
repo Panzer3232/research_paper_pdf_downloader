@@ -1,4 +1,4 @@
-# paper-downloader
+# research-paper-pdf-downloader
 
 An automated pipeline for downloading academic paper PDFs. Given a list of paper identifiers or a JSON file of Semantic Scholar metadata records, the pipeline resolves open-access PDF sources across 11 providers(for now...added in later versions), downloads the PDFs.
 

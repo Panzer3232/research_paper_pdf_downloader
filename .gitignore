@@ -36,7 +36,8 @@ build/
 .vscode/
 *.swp
 *.swo
-
+#py files
+test.py
 # OS
 .DS_Store
 Thumbs.db

@@ -1,6 +1,6 @@
 # research-paper-pdf-downloader
 
-An automated pipeline for downloading academic paper PDFs. Given a list of paper identifiers or a JSON file of Semantic Scholar metadata records, the pipeline resolves open-access PDF sources across 11 providers(for now...added in later versions), downloads the PDFs.
+An automated pipeline for downloading academic paper PDFs. Given a list of paper identifiers or a JSON file of Semantic Scholar metadata records, the pipeline resolves open-access PDF sources across 11 providers(for now...added in later versions), downloads the PDFs. This repository is currently under construction.
 
 ---
 
@@ -65,11 +65,11 @@ The pipeline accepts several input formats, all passed via the `--input` argumen
 
 **A JSON file containing a list of Semantic Scholar metadata records**
 
-This is the recommended format if you are working with data exported from Semantic Scholar. E
+This is the recommended format if you are working with data exported from Semantic Scholar. You can just input papers metadata json file, based on the semantic scholar paperID it will download the papers and in the end new json file is given with download stats ( file path, downloaded status etc).
 
 **A JSON file containing a list of identifier strings**
 
-A plain list of identifiers. Each string can be a Semantic Scholar paper ID.
+A plain list of identifiers. Each string can be a Semantic Scholar paper ID. Although it works wth arxivID but paperID is safe.
 
 
 **A single identifier string passed directly**
@@ -82,19 +82,19 @@ python main.py --input "2410.20513"
 
 ## Running the Pipeline
 
-Basic usage:
+Basic usage (config file is default):
 
 ```bash
 python main.py --input your_papers.json
 ```
 
-With an explicit config file:
+With an explicit config file(if custom config file is used):
 
 ```bash
 python main.py --input your_papers.json --config config.json
 ```
 
-With enriched output — writes a copy of your input JSON with `pdf_path`, `download_status`, and `downloaded` fields added to each record:
+With enriched output: writes a copy of your input JSON with `pdf_path`, `download_status`, and `downloaded` fields added to each record:
 
 ```bash
 python main.py --input your_papers.json --output your_papers_enriched.json
@@ -175,7 +175,11 @@ The pipeline queries up to 11 open-access source providers in priority order. Pr
 | doaj | Searches the Directory of Open Access Journals | No |
 | broad_search | Falls back to DuckDuckGo site-scoped search as a last resort | No |
 
+### Scoring System
+
 The scoring system prefers publisher versions over accepted manuscripts over preprints. Within each version type, candidates from trusted domains are ranked above unknown domains. A paper is considered downloaded if any candidate succeeds. If all candidates fail, the paper is marked as `failed_unresolved_no_legal_pdf` and appears in the failed count in the stats summary.
+
+When multiple providers return PDF candidates for the same paper, the pipeline ranks them using a two-layer system before attempting any download. The first layer is a hard categorical sort: candidates are ordered by whether they are a publisher version, whether the URL is a direct `.pdf` link, and whether the hosting server is a known publisher domain — in that priority order, evaluated as a tuple so a confirmed publisher version always outranks a preprint regardless of score. The second layer is a continuous quality score built from six independent additive signals: a direct PDF link adds `+0.20`, a domain matching the `trusted_domains` config list adds `+0.20`, a publisher version type adds `+0.30` (or `+0.15` if `prefer_publisher_version` is false) while an accepted version adds `+0.20`, a preprint adds `+0.10` if allowed or `-1.00` if `allow_preprints` is false effectively eliminating it, a publisher host type adds `+0.10` and a repository host `+0.05`, a title similarity score at or above `title_similarity_threshold` adds `+0.10` while a score below threshold adds `-0.20`, and finally the provider's own base confidence — ranging from `0.62` for BroadSearch up to `0.97` for ACL Anthology — contributes at most `+0.10` (scaled by a factor of `0.10`) so that the pipeline's own structural signals always outweigh any single provider's self-reported certainty. Before ranking, duplicate URLs across providers are collapsed keeping only the higher-scored entry. The top-ranked candidate is attempted first; if it fails to download, the pipeline falls through the ranked list automatically. Every candidate's full score breakdown is persisted in the paper's manifest JSON under `stats.resolution.all_candidates` for inspection.
 
 ---
 

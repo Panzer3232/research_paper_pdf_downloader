@@ -1,0 +1,86 @@
+{
+  "runtime": {
+    "input_path": null
+  },
+  "resolution": {
+    "prefer_publisher_version": true,
+    "allow_preprints": true,
+    "allow_title_fallback": true,
+    "title_similarity_threshold": 0.9,
+    "source_priority": [
+      "metadata_open_access",
+      "venue_exact",
+      "arxiv",
+      "acl",
+      "cvf",
+      "openalex",
+      "unpaywall",
+      "europepmc",
+      "crossref",
+      "core",
+      "zenodo",
+      "doaj",
+      "broad_search"
+    ],
+    "trusted_domains": [
+      "arxiv.org",
+      "biorxiv.org",
+      "medrxiv.org",
+      "aclanthology.org",
+      "openaccess.thecvf.com",
+      "api.openalex.org",
+      "content.openalex.org",
+      "doi.org",
+      "dl.acm.org",
+      "ieeexplore.ieee.org",
+      "link.springer.com",
+      "nature.com",
+      "sciencedirect.com",
+      "pmc.ncbi.nlm.nih.gov",
+      "europepmc.org",
+      "zenodo.org",
+      "doaj.org",
+      "osf.io",
+      "hal.science",
+      "ssrn.com",
+      "core.ac.uk",
+      "mdpi.com",
+      "frontiersin.org",
+      "journals.plos.org"
+    ]
+  },
+  "download": {
+    "connect_timeout_seconds": 10,
+    "read_timeout_seconds": 60,
+    "max_retries": 3,
+    "retry_backoff_seconds": 2.0,
+    "verify_ssl": true,
+    "max_redirects": 5,
+    "min_pdf_bytes": 1024,
+    "max_pdf_bytes": 250000000,
+    "user_agent": "paper-downloader/1.0",
+    "allowed_content_types": [
+      "application/pdf",
+      "application/x-pdf",
+      "binary/octet-stream"
+    ]
+  },
+  "resume": {
+    "enabled": true,
+    "skip_completed_stages": true,
+    "verify_existing_files": true,
+    "retry_failed_stage_only": true
+  },
+  "output": {
+    "root_dir": "data",
+    "input_dir_name": "input",
+    "metadata_dir_name": "metadata",
+    "manifests_dir_name": "manifests",
+    "pdfs_dir_name": "pdfs",
+    "reports_dir_name": "reports"
+  },
+  "logging": {
+    "level": "INFO",
+    "log_file": null
+  }
+}

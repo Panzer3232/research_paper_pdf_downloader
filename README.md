@@ -194,8 +194,39 @@ The pipeline is safe to re-run on the same input. On each run:
 To force a full re-download of everything, delete the `data/` directory before running.
 
 ---
+## Programmatic Usage
+
+The pipeline can be used as a callable library without the CLI. This is useful when integrating the downloader into a larger pipeline or calling it from another script.
+
+### Installation
+
+From the project root, install in editable mode once:
+```bash
+pip install -e .
+```
+
+After this, `api.py` is importable from any folder without path manipulation.
+
+### Basic Usage
+```python
+from api import download
 
 
+results = download("649def34f8be52c8b66281af98ae884c09aef38b")
+
+
+results = download([
+    "649def34f8be52c8b66281af98ae884c09aef38b",
+            
+])
+
+for r in results:
+    if r.downloaded:
+        print(r.pdf_path)   
+    else:
+        print(r.status, r.error)
+```
+---
 
 ## Troubleshooting
 

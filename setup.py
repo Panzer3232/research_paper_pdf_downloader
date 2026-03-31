@@ -6,7 +6,7 @@ setup(
     description="Automated pipeline for downloading academic paper PDFs via Semantic Scholar metadata and multi-provider open-access resolution.",
     python_requires=">=3.10",
     packages=find_packages(),
-    py_modules=["api", "main"],
+    py_modules=["paper_data", "main"],
     package_data={
         "": ["config.json"],
     },

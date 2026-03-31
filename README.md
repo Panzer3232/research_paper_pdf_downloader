@@ -205,11 +205,11 @@ From the project root, install in editable mode once:
 pip install -e .
 ```
 
-After this, `api.py` is importable from any folder without path manipulation.
+After this, `paper_data.py` is importable from any folder without path manipulation.
 
 ### Basic Usage
 ```python
-from api import download
+from paper_data import download
 
 
 results = download("649def34f8be52c8b66281af98ae884c09aef38b")

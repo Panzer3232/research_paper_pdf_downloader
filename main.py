@@ -5,11 +5,11 @@ import logging
 import sys
 from pathlib import Path
 
-from app.config.loader import load_config
-from app.config.validator import validate_config
-from app.pipeline.orchestrator import DownloadOrchestrator
-from app.report.enrich_output import enrich_metadata_with_results
-from app.report.stats_writer import write_download_stats
+from paper_downloader.config.loader import load_config
+from paper_downloader.config.validator import validate_config
+from paper_downloader.pipeline.orchestrator import DownloadOrchestrator
+from paper_downloader.report.enrich_output import enrich_metadata_with_results
+from paper_downloader.report.stats_writer import write_download_stats
 
 _DEFAULT_CONFIG = Path(__file__).parent / "config.json"
 

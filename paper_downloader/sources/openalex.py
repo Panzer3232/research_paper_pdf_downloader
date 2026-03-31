@@ -1,0 +1,279 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+from urllib.parse import quote
+
+import requests
+
+from paper_downloader.config.models import ApiConfig, DownloadConfig, ResolutionConfig
+from paper_downloader.models.paper import PaperRecord
+from paper_downloader.resolve.resolver import SourceCandidate, validate_title_match
+
+
+def _domain_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    try:
+        from urllib.parse import urlparse
+
+        domain = (urlparse(url).netloc or "").lower().strip()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return domain or None
+    except Exception:
+        return None
+
+
+def _map_version(raw_version: str | None) -> str:
+    if not raw_version:
+        return "unknown"
+
+    lowered = raw_version.lower()
+    if lowered == "publishedversion":
+        return "publisher"
+    if lowered == "acceptedversion":
+        return "accepted"
+    if lowered == "submittedversion":
+        return "preprint"
+    return raw_version
+
+
+def _map_host_type(source_type: str | None, domain: str | None) -> str:
+    lowered = (source_type or "").lower().strip()
+
+    if lowered == "repository":
+        return "repository"
+    if lowered in {"journal", "conference", "book series", "ebook platform"}:
+        return "publisher"
+
+    if domain == "arxiv.org":
+        return "preprint"
+    if domain in {"aclanthology.org", "openaccess.thecvf.com"}:
+        return "publisher"
+    if domain in {"pmc.ncbi.nlm.nih.gov", "europepmc.org"}:
+        return "repository"
+
+    return "unknown"
+
+
+@dataclass(slots=True)
+class OpenAlexSourceProvider:
+    api_config: ApiConfig
+    download_config: DownloadConfig
+    resolution_config: ResolutionConfig
+    base_url: str = "https://api.openalex.org"
+    name: str = "openalex"
+    _session: requests.Session = field(default=None, init=False, repr=False)  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        self._session = requests.Session()
+        self._session.headers.update(self._headers())
+
+    def __del__(self) -> None:
+        if self._session is not None:
+            self._session.close()
+
+    def resolve(self, paper: PaperRecord) -> list[SourceCandidate]:
+        candidates: list[SourceCandidate] = []
+
+        if paper.doi:
+            work = self._fetch_work_by_doi(paper.doi)
+            if work:
+                candidates.extend(
+                    self._candidates_from_work(
+                        paper=paper,
+                        work=work,
+                        exact_lookup=True,
+                        title_match_score=1.0 if paper.title else None,
+                    )
+                )
+
+        if not candidates and self.resolution_config.allow_title_fallback and paper.title:
+            for work in self._search_works_by_title(paper.title):
+                work_title = work.get("title") or work.get("display_name")
+                match_score = validate_title_match(paper.title, work_title)
+                if match_score < self.resolution_config.title_similarity_threshold:
+                    continue
+
+                if paper.year is not None:
+                    work_year = work.get("publication_year") or work.get("year")
+                    if isinstance(work_year, int) and abs(work_year - paper.year) > 1:
+                        continue
+
+                candidates.extend(
+                    self._candidates_from_work(
+                        paper=paper,
+                        work=work,
+                        exact_lookup=False,
+                        title_match_score=match_score,
+                    )
+                )
+
+        return self._deduplicate(candidates)
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Accept": "application/json",
+            "User-Agent": self.download_config.user_agent,
+        }
+
+    def _timeout(self) -> tuple[int, int]:
+        return (
+            self.download_config.connect_timeout_seconds,
+            self.download_config.read_timeout_seconds,
+        )
+
+    def _base_params(self) -> dict[str, str]:
+        params: dict[str, str] = {
+            "include_xpac": "true",
+        }
+        if self.api_config.openalex_api_key:
+            params["api_key"] = self.api_config.openalex_api_key
+        return params
+
+    def _request_json(self, url: str, *, params: dict[str, str] | None = None) -> dict[str, Any] | None:
+        merged_params = self._base_params()
+        if params:
+            merged_params.update(params)
+
+        try:
+            response = self._session.get(
+                url,
+                params=merged_params,
+                timeout=self._timeout(),
+                allow_redirects=True,
+                verify=self.download_config.verify_ssl,
+            )
+        except requests.RequestException:
+            return None
+
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            return None
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+
+        return payload if isinstance(payload, dict) else None
+
+    def _fetch_work_by_doi(self, doi: str) -> dict[str, Any] | None:
+        normalized = doi.strip().lower()
+        doi_url = f"https://doi.org/{normalized}"
+        encoded = quote(doi_url, safe=":/")
+        url = f"{self.base_url}/works/{encoded}"
+        return self._request_json(url)
+
+    def _search_works_by_title(self, title: str) -> list[dict[str, Any]]:
+        payload = self._request_json(
+            f"{self.base_url}/works",
+            params={
+                "filter": f"title.search:{title}",
+                "per_page": "5",
+            },
+        )
+        if not payload:
+            return []
+        results = payload.get("results")
+        if not isinstance(results, list):
+            return []
+        return [item for item in results if isinstance(item, dict)]
+
+    def _candidates_from_work(
+        self,
+        *,
+        paper: PaperRecord,
+        work: dict[str, Any],
+        exact_lookup: bool,
+        title_match_score: float | None,
+    ) -> list[SourceCandidate]:
+        base_confidence = 0.95 if exact_lookup else 0.74
+        work_title = work.get("title") or work.get("display_name")
+        open_access = work.get("open_access") or {}
+        work_doi = work.get("doi")
+        openalex_id = work.get("id")
+        relevance_score = work.get("relevance_score")
+
+        raw_locations: list[dict[str, Any]] = []
+
+        best_oa = work.get("best_oa_location")
+        if isinstance(best_oa, dict):
+            raw_locations.append(best_oa)
+
+        primary_location = work.get("primary_location")
+        if isinstance(primary_location, dict):
+            raw_locations.append(primary_location)
+
+        locations = work.get("locations")
+        if isinstance(locations, list):
+            raw_locations.extend([loc for loc in locations if isinstance(loc, dict)])
+
+        seen_urls: set[str] = set()
+        candidates: list[SourceCandidate] = []
+
+        for location in raw_locations:
+            pdf_url = location.get("pdf_url") or location.get("url_for_pdf")
+            landing_page_url = location.get("landing_page_url") or location.get("url_for_landing_page")
+
+            if not pdf_url:
+                oa_url = open_access.get("oa_url") if isinstance(open_access, dict) else None
+                if isinstance(oa_url, str) and oa_url.lower().endswith(".pdf"):
+                    pdf_url = oa_url
+
+            if not pdf_url:
+                continue
+
+            if pdf_url in seen_urls:
+                continue
+            seen_urls.add(pdf_url)
+
+            source = location.get("source") or {}
+            source_type = source.get("type") if isinstance(source, dict) else None
+            source_display_name = source.get("display_name") if isinstance(source, dict) else None
+
+            domain = _domain_from_url(pdf_url) or _domain_from_url(landing_page_url)
+            version_raw = location.get("version")
+            version_type = _map_version(version_raw)
+            host_type = _map_host_type(source_type, domain)
+
+            if version_type == "unknown" and host_type == "publisher":
+                version_type = "publisher"
+
+            candidates.append(
+                SourceCandidate(
+                    source_name=self.name,
+                    pdf_url=pdf_url,
+                    landing_page_url=landing_page_url,
+                    version_type=version_type,
+                    host_type=host_type,
+                    license=location.get("license"),
+                    domain=domain,
+                    confidence=base_confidence,
+                    is_direct_pdf=True,
+                    title_match_score=title_match_score,
+                    reason="openalex exact doi lookup" if exact_lookup else "openalex title fallback",
+                    metadata={
+                        "openalex_id": openalex_id,
+                        "work_title": work_title,
+                        "work_doi": work_doi,
+                        "source_display_name": source_display_name,
+                        "source_type": source_type,
+                        "open_access_oa_status": open_access.get("oa_status") if isinstance(open_access, dict) else None,
+                        "relevance_score": relevance_score,
+                    },
+                )
+            )
+
+        return candidates
+
+    def _deduplicate(self, candidates: list[SourceCandidate]) -> list[SourceCandidate]:
+        deduped: dict[str, SourceCandidate] = {}
+        for candidate in candidates:
+            key = candidate.pdf_url
+            existing = deduped.get(key)
+            if existing is None or candidate.confidence > existing.confidence:
+                deduped[key] = candidate
+        return list(deduped.values())

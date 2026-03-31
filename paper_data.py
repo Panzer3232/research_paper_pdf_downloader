@@ -9,10 +9,10 @@ _PACKAGE_ROOT = Path(__file__).parent.resolve()
 if str(_PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_ROOT))
 
-from app.config.loader import load_config
-from app.config.models import PipelineConfig
-from app.config.validator import validate_config
-from app.pipeline.orchestrator import DownloadOrchestrator, DownloadPipelineResult
+from paper_downloader.config.loader import load_config
+from paper_downloader.config.models import PipelineConfig
+from paper_downloader.config.validator import validate_config
+from paper_downloader.pipeline.orchestrator import DownloadOrchestrator, DownloadPipelineResult
 
 logging.getLogger("paper_downloader").addHandler(logging.NullHandler())
 

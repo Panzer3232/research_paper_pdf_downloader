@@ -1,0 +1,22 @@
+{
+  "semantic_scholar": {
+    "date_filter_old": "2020-01-01:2025-06-30",
+    "date_filter_new": "2025-07-01:",
+    "min_citation_old": 1,
+    "min_citation_new": 0,
+    "publication_types": "JournalArticle,Conference,Dataset,Study",
+    "fields": "title,externalIds,abstract,year,venue,isOpenAccess,openAccessPdf,publicationVenue,publicationTypes,publicationDate,citationCount,authors,paperId,url"
+  },
+  "output": {
+    "base_dir": ""
+  },
+  "recovery": {
+    "similarity_threshold": 0.85,
+    "min_abstract_len": 80,
+    "request_delay": 2.5,
+    "scrape_timeout": [5, 15],
+    "scrape_max_retries": 2,
+    "api_sleep_between_papers": 1.5
+  },
+  "search_queries_path": ""
+}

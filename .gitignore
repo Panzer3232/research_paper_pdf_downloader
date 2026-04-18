@@ -11,6 +11,8 @@ paper.json
 
 # Pipeline output - downloaded PDFs, manifests, stats, metadata
 data/
+stats_test/
+search_results/
 
 # Python
 __pycache__/

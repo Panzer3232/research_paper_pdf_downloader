@@ -1,6 +1,6 @@
 # Automated-Paper-Data-Retriever-System
 
-An automated two-part research pipeline. The first part, **paper_metadata**, fetches academic paper metadata from Semantic Scholar by keyword-driven bulk search, deduplicates by paper ID and title across categories, and recovers missing metadata using multi-sources reterival systems. The second part, **paper_downloader**, resolves and downloads open-access PDFs for given paper identifiers across 11 source providers. Both pipelines are accessible from the command line and as a callable Python library via `paper_data.py`. This repository is currently under construction.
+This is an automated paper data retriever system which has is divided into two pipelines. The first part, **paper_metadata**, fetches academic paper metadata from Semantic Scholar by keyword-driven bulk search, deduplicates by paper ID and title across categories, and recovers missing metadata using multi-sources reterival systems. The second part, **paper_downloader**, resolves and downloads open-access PDFs for given paper identifiers across 11 source providers. Both pipelines are accessible from the command line and as a callable Python library via `paper_data.py`. This repository is currently under construction.
 
 ---
 

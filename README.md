@@ -72,8 +72,6 @@ OPENALEX_API_KEY=
 UNPAYWALL_EMAIL=
 CORE_API_KEY=
 CROSSREF_EMAIL=
-OPENAI_API_KEY=
-OPENAI_BASE_URL=
 ```
 
 **Always run your script from the folder that contains your `.env`:**

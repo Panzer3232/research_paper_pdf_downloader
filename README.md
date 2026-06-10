@@ -189,6 +189,40 @@ recover_abstracts(
 
 ---
 
+### Fetching Metadata by ID
+
+Use `fetch_papers_by_id` to retrieve full paper metadata for one or more known identifiers without running the keyword search pipeline. Accepts Semantic Scholar paper IDs, DOIs, ArXiv IDs, or any explicitly prefixed identifier (`ARXIV:`, `DOI:`, `ACL:`, `MAG:`, `PMID:`, `PMCID:`, `CorpusId:`). Returns a list of paper dicts in memory — no files are written to disk.
+
+```python
+from paper_data import fetch_papers_by_id
+
+# Single paper — any supported ID type
+papers = fetch_papers_by_id("2410.20513")
+papers = fetch_papers_by_id("10.1016/j.websem.2024.100822")
+papers = fetch_papers_by_id("649def34f8be52c8b66281af98ae884c09aef38b")
+
+# Batch — mixed ID types in one call
+papers = fetch_papers_by_id([
+    "2410.20513",
+    "DOI:10.1145/1234567.1234568",
+    "CorpusId:215416146",
+])
+
+# With abstract recovery for papers missing one after the SS fetch
+papers = fetch_papers_by_id(ids, api_recovery=True, scrape_recovery=True)
+
+# Iterate results
+for p in papers:
+    if p["_fetch_status"] == "found":
+        print(p["title"], p.get("abstract", "—"))
+    else:
+        print(p["_input_id"], "→", p["_fetch_status"])
+```
+
+Each result carries `_input_id` (the original identifier supplied) and `_fetch_status` (`found`, `not_found`, or `invalid_id`). Abstract recovery does not run automatically; pass `api_recovery=True` or `scrape_recovery=True` to opt in. Bare numeric IDs are rejected — prefix them explicitly (`CorpusId:`, `PMID:`, or `MAG:`).
+
+---
+
 ### Output Structure (paper_metadata)
 
 All output is created under `base_dir/search_results/`:

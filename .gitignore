@@ -4,7 +4,9 @@
 
 # Pipeline configuration with real values
 metadata_activations_papers.json
+metadata_activations_papers_enriched.json
 metadata_mi_papers.json
+metadata_mi_papers_enriched.json
 metadata_paper_enriched.json
 metadata_paper.json
 paper.json
@@ -40,6 +42,7 @@ build/
 *.swo
 #py files
 test.py
+test_fetch_id.py
 # OS
 .DS_Store
 Thumbs.db

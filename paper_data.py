@@ -14,8 +14,14 @@ from paper_downloader.config.models import PipelineConfig
 from paper_downloader.config.validator import validate_config
 from paper_downloader.pipeline.orchestrator import DownloadOrchestrator, DownloadPipelineResult
 
+from paper_metadata.acquisition.citations import fetch_paper_graph
 from paper_metadata.config.loader import load_config as _md_load_config
-from paper_metadata.config.models import MetadataConfig, RunConfig
+from paper_metadata.config.models import (
+    CitationGraphOptions,
+    MetadataConfig,
+    PaperGraphResult,
+    RunConfig,
+)
 from paper_metadata.pipeline.orchestrator import MetadataOrchestrator
 from paper_metadata.acquisition.semantic_scholar import fetch_papers_by_ids as _fetch_papers_by_ids
 from paper_metadata.recovery.api_recovery import ApiRecoveryProvider
@@ -27,6 +33,8 @@ logging.getLogger("paper_metadata").addHandler(logging.NullHandler())
 _DEFAULT_DOWNLOAD_CONFIG = Path(__file__).parent / "config.json"
 _DEFAULT_METADATA_CONFIG = Path(__file__).parent / "paper_metadata" / "config.json"
 
+
+# ── paper_downloader ──────────────────────────────────────────────────────────
 
 def download(
     ids: str | list[str] | Path,
@@ -113,6 +121,9 @@ def _resolve_download_config(
     validate_config(loaded)
     return loaded
 
+
+# ── paper_metadata — bulk pipeline ────────────────────────────────────────────
+
 def _is_missing_abstract(paper: dict) -> bool:
     abstract = paper.get("abstract")
     return not abstract or not str(abstract).strip()
@@ -156,6 +167,7 @@ def recover_abstracts(
     )
     MetadataOrchestrator(resolved_config, run_config).run()
 
+
 def fetch_papers_by_id(
     ids: str | list[str],
     *,
@@ -189,8 +201,8 @@ def fetch_papers_by_id(
     if not (api_recovery or scrape_recovery):
         return results
 
-    found_papers    = [r for r in results if r.get("_fetch_status") == "found"]
-    missing_papers  = [p for p in found_papers if _is_missing_abstract(p)]
+    found_papers   = [r for r in results if r.get("_fetch_status") == "found"]
+    missing_papers = [p for p in found_papers if _is_missing_abstract(p)]
 
     if not missing_papers:
         return results
@@ -207,7 +219,6 @@ def fetch_papers_by_id(
                 paper["abstract"] = result.abstract
 
     if scrape_recovery:
-        # Re-evaluate which papers still need recovery after the API pass.
         still_missing = [p for p in missing_papers if _is_missing_abstract(p)]
         provider = ScrapeRecoveryProvider(config=resolved_config.recovery)
         for paper in still_missing:
@@ -216,6 +227,232 @@ def fetch_papers_by_id(
                 paper["abstract"] = result.abstract
 
     return results
+
+
+# ── paper_metadata — citation / reference graph ───────────────────────────────
+
+def fetch_citations_and_references(
+    ids: str | list[str],
+    *,
+    # Which endpoints to call
+    citations: bool = True,
+    references: bool = True,
+    # Shorthand kwargs — applied identically to both endpoints when no
+    # explicit citation_options / reference_options are supplied.
+    influential_only: bool = False,
+    fields: str | None = None,
+    max_results: int | None = None,
+    publication_date_filter: str | None = None,
+    # Fine-grained per-endpoint control. When provided, ALL shorthand kwargs
+    # are ignored for that endpoint — the options object is used as-is.
+    citation_options: CitationGraphOptions | None = None,
+    reference_options: CitationGraphOptions | None = None,
+    # Output — optional JSON persistence
+    save_dir: str | Path | None = None,
+    # Config
+    config: MetadataConfig | None = None,
+    config_path: str | Path | None = None,
+) -> list[PaperGraphResult]:
+    """
+    Fetch citation and/or reference edges for one or more papers.
+
+    Parameters
+    ----------
+    ids
+        A single identifier string or a list of them. Each identifier is
+        auto-detected and normalised — no manual prefix required for the
+        common formats:
+
+          40-char hex string        → Semantic Scholar SHA paper ID
+          10.XXXX/...               → DOI  (prefixed automatically as DOI:...)
+          2106.15928 / 2106.15928v2
+          cs/0612033                → ArXiv  (prefixed as ARXIV:...)
+          https://arxiv.org/...     → URL  (prefixed as URL:...)
+
+        Explicit prefixes are also accepted and are case-insensitive on the
+        prefix part:  "doi:...", "ARXIV:...", "CorpusId:...", "PMID:...",
+        "PMCID:...", "MAG:...", "ACL:...".
+
+        Bare numeric strings (e.g. "12345678") are rejected with a ValueError
+        because they are ambiguous across CorpusId, PubMed, and MAG namespaces.
+        Use an explicit prefix instead: "CorpusId:12345678".
+
+    citations
+        Whether to call the /citations endpoint.  Default True.
+
+    references
+        Whether to call the /references endpoint.  Default True.
+
+    influential_only
+        Shorthand: when True, both citation and reference lists are filtered
+        to edges where isInfluential is True. Filtering is applied in Python
+        after fetching; all edges are still fetched from the API first.
+        Ignored if citation_options / reference_options are supplied explicitly
+        for the respective endpoint.
+
+    fields
+        Shorthand: comma-separated list of paper fields to return for each
+        cited/citing paper (e.g. "paperId,title,year,abstract,authors").
+        Falls back to the config default when None.
+        Ignored if citation_options / reference_options are supplied.
+
+    max_results
+        Shorthand: cap on the number of edges fetched per endpoint per paper.
+        None means fetch all edges up to the API ceiling (~9,999).
+        Falls back to the config default when None.
+        Ignored if citation_options / reference_options are supplied.
+
+    publication_date_filter
+        Shorthand: date-range string applied to the citations endpoint only
+        (the references endpoint does not support this parameter).
+        Format: "YYYY-MM-DD:YYYY-MM-DD", open-ended ("2020-01-01:" / ":2023-12-31").
+        Ignored if citation_options is supplied explicitly.
+
+    citation_options
+        Fine-grained control for the citations endpoint only. When supplied,
+        ALL shorthand kwargs (influential_only, fields, max_results,
+        publication_date_filter) are ignored for citations. Providing both
+        citation_options and any shorthand kwarg at a non-default value raises
+        ValueError.
+
+    reference_options
+        Fine-grained control for the references endpoint only. When supplied,
+        ALL shorthand kwargs except publication_date_filter (which is
+        citations-only) are ignored for references. Providing both
+        reference_options and any shorthand kwarg at a non-default value raises
+        ValueError.
+
+    save_dir
+        Optional path under which citation and reference JSON files are
+        written.  The layout created is:
+
+          save_dir/
+            citations/<paper_id>.json
+            references/<paper_id>.json
+
+        When None (the default), no files are written.  To write inside
+        the pipeline's existing output tree, pass the search_results path:
+
+          save_dir = Path(config.output.base_dir) / "search_results"
+
+    config
+        Pre-built MetadataConfig. When provided, config_path is ignored.
+
+    config_path
+        Path to a paper_metadata config.json. Falls back to the default
+        config.json that ships with the library.
+
+    Returns
+    -------
+    list[PaperGraphResult]
+        One result per input identifier, in input order. Check result.error
+        for identifiers that could not be resolved. result.citations and
+        result.references are always lists (empty when not requested or on
+        error). result.citations_fetched / references_fetched report the raw
+        edge count before any influential_only filtering.
+        result.citations_truncated / references_truncated are True when the
+        API ceiling was hit.
+
+    Examples
+    --------
+    # Single paper, both endpoints, all defaults
+    results = fetch_citations_and_references("2106.15928")
+
+    # Batch, influential citations only, references off
+    results = fetch_citations_and_references(
+        ["DOI:10.18653/v1/N18-3011", "2106.15928"],
+        references=False,
+        influential_only=True,
+    )
+
+    # Different options per endpoint
+    from paper_data import CitationGraphOptions
+    results = fetch_citations_and_references(
+        "CorpusId:215416146",
+        citation_options=CitationGraphOptions(influential_only=True, max_results=200),
+        reference_options=CitationGraphOptions(fields="paperId,title,year"),
+    )
+    """
+    if not citations and not references:
+        raise ValueError("At least one of citations or references must be True.")
+
+    _validate_shorthand_conflicts(
+        citation_options, reference_options,
+        influential_only, fields, max_results, publication_date_filter,
+    )
+
+    resolved_config = _resolve_metadata_config(config, config_path, None, None)
+
+    effective_citation_opts = citation_options or CitationGraphOptions(
+        fields=fields,
+        max_results=max_results,
+        influential_only=influential_only,
+        publication_date_filter=publication_date_filter,
+    )
+    effective_reference_opts = reference_options or CitationGraphOptions(
+        fields=fields,
+        max_results=max_results,
+        influential_only=influential_only,
+        # publication_date_filter is citations-only; omitted here explicitly.
+        publication_date_filter=None,
+    )
+
+    resolved_save_dir: Path | None = None
+    if save_dir is not None:
+        resolved_save_dir = Path(save_dir).resolve()
+
+    return fetch_paper_graph(
+        ids,
+        cfg=resolved_config.citation_graph,
+        ss_api_key=resolved_config.ss_api_key,
+        fetch_citations=citations,
+        fetch_references=references,
+        citation_options=effective_citation_opts,
+        reference_options=effective_reference_opts,
+        save_dir=resolved_save_dir,
+    )
+
+
+# ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _validate_shorthand_conflicts(
+    citation_options: CitationGraphOptions | None,
+    reference_options: CitationGraphOptions | None,
+    influential_only: bool,
+    fields: str | None,
+    max_results: int | None,
+    publication_date_filter: str | None,
+) -> None:
+    """
+    Raise ValueError if the caller supplies both an explicit options object
+    and shorthand kwargs that would silently be ignored.
+
+    A shorthand kwarg is considered non-default when it differs from its
+    parameter default: influential_only=False, fields=None, max_results=None,
+    publication_date_filter=None.
+    """
+    shorthand_active = (
+        influential_only is not False
+        or fields is not None
+        or max_results is not None
+        or publication_date_filter is not None
+    )
+
+    if citation_options is not None and shorthand_active:
+        raise ValueError(
+            "Provide either citation_options or shorthand kwargs "
+            "(influential_only, fields, max_results, publication_date_filter), "
+            "not both. The shorthand kwargs are ignored when citation_options "
+            "is supplied, which would produce a silently surprising result."
+        )
+
+    if reference_options is not None and shorthand_active:
+        raise ValueError(
+            "Provide either reference_options or shorthand kwargs "
+            "(influential_only, fields, max_results), not both. "
+            "The shorthand kwargs are ignored when reference_options is "
+            "supplied, which would produce a silently surprising result."
+        )
 
 
 def _resolve_metadata_config(

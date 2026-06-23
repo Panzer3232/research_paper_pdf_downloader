@@ -17,6 +17,8 @@ This is an automated paper data retriever system which has is divided into two p
   - [search_queries.json](#search_queriesjson)
   - [Running from the CLI](#running-from-the-cli)
   - [Programmatic Usage (paper_metadata)](#programmatic-usage-paper_metadata)
+  - [Fetching Metadata by ID](#fetching-metadata-by-id)
+  - [Citation and Reference Graph Retrieval](#citation-and-reference-graph-retrieval)
   - [Output Structure (paper_metadata)](#output-structure-paper_metadata)
 - [Input Formats (paper_downloader)](#input-formats-paper_downloader)
 - [Running the Download Pipeline](#running-the-download-pipeline)
@@ -220,6 +222,95 @@ for p in papers:
 ```
 
 Each result carries `_input_id` (the original identifier supplied) and `_fetch_status` (`found`, `not_found`, or `invalid_id`). Abstract recovery does not run automatically; pass `api_recovery=True` or `scrape_recovery=True` to opt in. Bare numeric IDs are rejected — prefix them explicitly (`CorpusId:`, `PMID:`, or `MAG:`).
+
+---
+
+### Citation and Reference Graph Retrieval
+
+`fetch_citations_and_references` fetches citation and reference edges for one or more papers via two independent Semantic Scholar endpoints: `/paper/{id}/citations` (papers that cite the target) and `/paper/{id}/references` (papers cited by the target). Both are called by default and can be toggled independently. Returns one `PaperGraphResult` per input identifier.
+
+#### Usage
+
+```python
+from paper_data import fetch_citations_and_references, CitationGraphOptions
+
+# Both endpoints, all defaults
+results = fetch_citations_and_references("2106.15928")
+
+# Batch — citations only, influential papers, capped at 200, saved to disk
+results = fetch_citations_and_references(
+    [
+        "1509b5dd76b251d61cd03f0bc26521da50edcf37",
+        "1a1e99514d8d175459f7c61cfd0c394b46e63359",
+    ],
+    references=False,
+    influential_only=True,
+    max_results=200,
+    save_dir="/path/to/output",
+)
+
+# Fine-grained control — different options per endpoint
+results = fetch_citations_and_references(
+    paper_batch,
+    citation_options=CitationGraphOptions(influential_only=True, max_results=200),
+    reference_options=CitationGraphOptions(influential_only=False),
+    save_dir="/path/to/output",
+)
+
+# Iterate results
+for r in results:
+    if r.error:
+        print(r.input_id, "→ failed:", r.error)
+    else:
+        print(r.input_id, "→", len(r.citations), "citations,", len(r.references), "references")
+```
+
+Shorthand kwargs (`influential_only`, `max_results`, `fields`, `publication_date_filter`) apply identically to both endpoints. When `citation_options` or `reference_options` is provided for an endpoint, all shorthand kwargs are ignored for that endpoint — mixing both raises `ValueError`.
+
+#### Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `citations` | `True` | Call the `/citations` endpoint |
+| `references` | `True` | Call the `/references` endpoint |
+| `influential_only` | `False` | Filter to edges where `isInfluential=True` (post-fetch in Python; all pages are still fetched) |
+| `max_results` | `None` | Cap on edges fetched per endpoint per paper; `None` fetches all up to the API ceiling (~9,999) |
+| `fields` | `None` | Comma-separated SS fields per returned paper (e.g. `"paperId,title,year"`); falls back to `config.json` default |
+| `publication_date_filter` | `None` | Date range for **citations only**; ignored for references. Format: `"YYYY-MM-DD:YYYY-MM-DD"`, open-ended (`"2020-01-01:"`) accepted |
+| `citation_options` | `None` | `CitationGraphOptions` for fine-grained citations control; overrides all shorthand kwargs for citations |
+| `reference_options` | `None` | `CitationGraphOptions` for fine-grained references control; overrides all shorthand kwargs for references |
+| `save_dir` | `None` | Directory to write JSON output; created automatically if absent |
+
+`influential_only` relies on Semantic Scholar's ML model, which identifies citations where the cited work had significant impact on the citing paper based on citation count and surrounding context. See [Valenzuela et al., 2015](https://www.semanticscholar.org/paper/Identifying-Meaningful-Citations-Valenzuela-Ha/1c7be3fc28296a97607d426f9168ad4836407e4b) for the methodology. Note that `citations_fetched` / `references_fetched` on the result always reflect the raw pre-filter count.
+
+#### Output structure (when save_dir is set)
+
+```
+save_dir/
+  citations/<paper_id>.json
+  references/<paper_id>.json
+  fetch_summary.json
+```
+
+Each per-paper file records `fetched` (raw count), `returned` (after filtering), `truncated`, and the `papers` list. `fetch_summary.json` covers every paper with per-endpoint `status` values: `success`, `empty`, `truncated`, `failed`, or `not_requested`.
+
+#### PaperGraphResult fields
+
+| Field | Type | Description |
+|---|---|---|
+| `input_id` | `str` | Original identifier supplied by the caller |
+| `paper_id` | `str \| None` | Normalised identifier sent to the API; `None` on error |
+| `citations` | `list[dict]` | Citing papers (empty if not requested or on error) |
+| `references` | `list[dict]` | Cited papers (empty if not requested or on error) |
+| `citations_fetched` / `references_fetched` | `int` | Raw edge count before `influential_only` filtering |
+| `citations_truncated` / `references_truncated` | `bool` | `True` if the API ceiling (~9,999) was hit |
+| `error` | `str \| None` | Error message on lookup failure; `None` on success |
+
+#### Identifier formats and API limits
+
+Accepted formats are the same as `fetch_papers_by_id`: 40-char hex SS IDs, DOIs (`10.XXXX/...`), ArXiv IDs (`2106.15928`), URLs, and explicitly prefixed identifiers (`DOI:`, `ARXIV:`, `CorpusId:`, `PMID:`, `PMCID:`, `MAG:`, `ACL:`). Bare numeric strings are rejected — use an explicit prefix (e.g. `"CorpusId:12345678"`).
+
+The API silently truncates at ~9,999 edges per endpoint; `citations_truncated` / `references_truncated` signal this. Set `SEMANTIC_SCHOLAR_API_KEY` in `.env` to raise rate limits. The inter-paper delay in batch calls is controlled by `request_delay` in the `citation_graph` section of `paper_metadata/config.json`.
 
 ---
 

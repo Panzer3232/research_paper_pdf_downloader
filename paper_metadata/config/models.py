@@ -31,10 +31,60 @@ class OutputConfig:
 
 
 @dataclass
+class CitationGraphConfig:
+    """
+    Static defaults for the citations/references retrieval feature, loaded from
+    the 'citation_graph' section of config.json.  Every field can be overridden
+    at call time via CitationGraphOptions.
+    """
+    fields: str
+    # None means "fetch all edges up to the API ceiling (~9,999 per endpoint)".
+    max_results: int | None
+    # Seconds to sleep between papers in a batch call (not between pages).
+    request_delay: float
+    base_url: str = "https://api.semanticscholar.org/graph/v1/paper"
+
+
+@dataclass
+class CitationGraphOptions:
+    """
+    Per-call, per-endpoint overrides.  Any field left as None falls back to the
+    value in CitationGraphConfig.  Construct one instance for both endpoints
+    (common case) or two separate instances for fine-grained control.
+    """
+    fields: str | None = None
+    max_results: int | None = None
+    influential_only: bool = False
+    # Honoured only by the citations endpoint; silently ignored for references.
+    publication_date_filter: str | None = None
+
+
+@dataclass
+class PaperGraphResult:
+    """
+    Returned by fetch_citations_and_references() for each input identifier.
+    Lists are empty (not None) when the corresponding endpoint was not requested
+    or when the paper lookup failed.
+    """
+    input_id: str
+    # SS canonical paperId resolved by the API; None if the lookup failed.
+    paper_id: str | None
+    citations: list[dict]
+    references: list[dict]
+    citations_fetched: int       # raw count before influential_only filtering
+    references_fetched: int
+    # True when the API ceiling (~9,999) was hit and results were truncated.
+    citations_truncated: bool
+    references_truncated: bool
+    error: str | None            
+
+
+@dataclass
 class MetadataConfig:
     semantic_scholar: SemanticScholarConfig
     recovery: RecoveryConfig
     output: OutputConfig
+    citation_graph: CitationGraphConfig
     search_queries_path: str
     ss_api_key: str = ""
     core_api_key: str = ""

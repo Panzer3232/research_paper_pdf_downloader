@@ -18,5 +18,10 @@
     "scrape_max_retries": 2,
     "api_sleep_between_papers": 1.5
   },
+  "citation_graph": {
+    "fields": "paperId,title,year,authors,abstract,isInfluential,citationCount,externalIds",
+    "max_results": null,
+    "request_delay": 1.0
+  },
   "search_queries_path": ""
 }

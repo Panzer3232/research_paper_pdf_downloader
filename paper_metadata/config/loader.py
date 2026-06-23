@@ -6,7 +6,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from .models import MetadataConfig, OutputConfig, RecoveryConfig, SemanticScholarConfig
+from .models import (
+    CitationGraphConfig,
+    MetadataConfig,
+    OutputConfig,
+    RecoveryConfig,
+    SemanticScholarConfig,
+)
 
 _REQUIRED_SS_FIELDS = [
     "date_filter_old",
@@ -44,6 +50,7 @@ def load_config(config_path: str | Path) -> MetadataConfig:
     ss_raw = raw["semantic_scholar"]
     recovery_raw = raw["recovery"]
     output_raw = raw["output"]
+    cg_raw = raw.get("citation_graph", {})
 
     scrape_timeout = recovery_raw["scrape_timeout"]
     if isinstance(scrape_timeout, list):
@@ -51,6 +58,11 @@ def load_config(config_path: str | Path) -> MetadataConfig:
 
     ss_key_env = ss_raw.get("api_key_env", "SEMANTIC_SCHOLAR_API_KEY")
     core_key_env = recovery_raw.get("core_api_key_env", "CORE_API_KEY")
+
+    # max_results accepts null in JSON (→ None) or a positive integer.
+    _cg_max = cg_raw.get("max_results", None)
+    if _cg_max is not None:
+        _cg_max = int(_cg_max)
 
     return MetadataConfig(
         semantic_scholar=SemanticScholarConfig(
@@ -71,6 +83,14 @@ def load_config(config_path: str | Path) -> MetadataConfig:
         ),
         output=OutputConfig(
             base_dir=output_raw["base_dir"],
+        ),
+        citation_graph=CitationGraphConfig(
+            fields=cg_raw.get(
+                "fields",
+                "paperId,title,year,authors,abstract,isInfluential,citationCount,externalIds",
+            ),
+            max_results=_cg_max,
+            request_delay=float(cg_raw.get("request_delay", 1.0)),
         ),
         search_queries_path=raw.get(
             "search_queries_path",
